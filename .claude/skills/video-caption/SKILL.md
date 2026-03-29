@@ -1,7 +1,7 @@
 ---
 name: video-caption
-version: 1.0.0
-description: "Extract subtitles from YouTube videos and convert to Markdown notes. Trigger: user provides YouTube URL and asks to extract subtitles, captions, or notes. Actions: extract, download, convert, subtitle, caption, transcribe, note. Tools: yt-dlp and Node.js. Fallback: faster-whisper when no native subtitles. OS: Windows, macOS, Linux."
+version: 2.0.0
+description: "Extract subtitles from YouTube videos and convert to Markdown notes. Trigger: user provides YouTube URL and asks to extract subtitles, captions, or notes. Actions: extract, download, convert, subtitle, caption, transcribe, note, 提取字幕, 转为笔记. Tools: yt-dlp and Node.js CLI. Output: Markdown file with title, channel, date, source label. Fallback: Whisper when no native subtitles."
 metadata:
   openclaw:
     requires:
@@ -10,204 +10,77 @@ metadata:
         - node
 ---
 
-# Video Caption -> Markdown Note
+# Video Caption Skill
 
-Extract subtitles from a YouTube video and convert to a clean Markdown file.
+Extracts subtitles from a YouTube video and saves a clean Markdown note with metadata.
 
 ## When to Apply
 
-Use this skill when the user:
-- Provides a YouTube URL and asks to extract subtitles or notes
-- Says "extract subtitle", "convert to note", "download caption", "帮我提取字幕", "转为笔记"
-- Wants to save video content as a readable Markdown file
+- User provides a YouTube URL and asks to extract subtitles / captions / notes
+- Keywords: "extract subtitle", "convert to note", "download caption", "帮我提取字幕", "转为笔记", "整理成笔记"
+
+---
+
+## Setup (one-time)
+
+```bash
+cd /path/to/video-caption-skill
+npm install   # no external deps, just registers the bin
+```
+
+Or install globally:
+
+```bash
+npm install -g /path/to/video-caption-skill
+```
+
+### youtube_cookies.txt (required for rate-limit bypass)
+
+1. Install Chrome extension: **Get cookies.txt LOCALLY**
+2. Open `youtube.com` while logged in → Export → Netscape format
+3. Save as `youtube_cookies.txt` in your working directory
+4. The file is listed in `.gitignore` — never commit it
 
 ---
 
 ## How to Use This Skill
 
-### Step 1: Check Available Subtitles
-
-Always check first:
+### Basic usage
 
 ```bash
-yt-dlp --list-subs "VIDEO_URL" --cookies youtube_cookies.txt
+node bin/video-caption.js <youtube_url>
 ```
 
-Look for:
-- `zh-Hans` — Native Simplified Chinese
-- `zh-Hans-en` — Auto-translated from English (most common)
-- `en` — Native English
+Output: `notes/YYYY-MM-DD-VIDEO_ID.md`
 
-If empty → go to **Fallback: Whisper** section.
-
----
-
-### Step 2: Download Subtitles (VTT)
-
-**macOS / Linux:**
+### With options
 
 ```bash
-yt-dlp --skip-download --write-subs --write-auto-subs \
-  --sub-langs "zh-Hans,zh-Hans-en,en" \
-  --sub-format vtt \
-  --output "%(id)s" \
+node bin/video-caption.js <youtube_url> \
+  --out "notes/%(id)s.md" \
+  --lang "zh-Hans,zh-Hans-en,en" \
   --cookies youtube_cookies.txt \
-  "VIDEO_URL"
+  --merge-window 4
 ```
 
-**Windows CMD:**
+### All options
 
-```cmd
-yt-dlp --skip-download --write-subs --write-auto-subs ^
-  --sub-langs "zh-Hans,zh-Hans-en,en" ^
-  --sub-format vtt ^
-  --output "%(id)s" ^
-  --cookies youtube_cookies.txt ^
-  "VIDEO_URL"
-```
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--out <template>` | `notes/%Y-%m-%d-%(id)s.md` | Output path. Supports `%Y-%m-%d`, `%(id)s`, `%(title)s` |
+| `--lang <langs>` | `zh-Hans,zh-Hans-en,en` | Subtitle language priority (comma-separated) |
+| `--cookies <file>` | `youtube_cookies.txt` | Cookies file path |
+| `--merge-window <s>` | `4` | Merge subtitle lines within N seconds into one segment |
+| `--keep-timestamps` | off | Prefix each paragraph with `[MM:SS]` |
+| `--whisper` | off | Force Whisper even if subtitles exist |
 
-Output: `VIDEO_ID.zh-Hans-en.vtt` in current directory.
-
----
-
-### Step 3: Convert VTT to Markdown
-
-**Important:** Always write a `.js` file and run with `node`. Never use `node -e` multiline on Windows CMD — it breaks.
-
-Create `vtt2md.js`:
-
-```js
-const fs = require('fs');
-const path = require('path');
-
-const INPUT  = process.env.VTT_FILE  || 'VIDEO_ID.zh-Hans-en.vtt';
-const OUTPUT = process.env.OUT_FILE  || 'output.md';
-const TITLE  = process.env.TITLE     || 'Video Title';
-const URL    = process.env.VIDEO_URL || 'https://www.youtube.com/watch?v=VIDEO_ID';
-
-const lines = fs.readFileSync(INPUT, 'utf8').split(/\r?\n/);
-const texts = [];
-let prev = '';
-
-for (const raw of lines) {
-  const line = raw.trim();
-  if (!line) continue;
-  if (line.startsWith('WEBVTT') || line.startsWith('Kind:') || line.startsWith('Language:')) continue;
-  if (/^\d{2}:\d{2}:\d{2}/.test(line)) continue;
-  if (line === prev) continue;
-  prev = line;
-  texts.push(line);
-}
-
-const md = `# ${TITLE}\n\n> Source: [${TITLE}](${URL})\n\n---\n\n` + texts.join('\n');
-fs.mkdirSync(path.dirname(path.resolve(OUTPUT)), { recursive: true });
-fs.writeFileSync(OUTPUT, md, 'utf8');
-console.log(`done: ${texts.length} lines -> ${OUTPUT}`);
-```
-
-**macOS / Linux:**
+### If running via Claude (no global install)
 
 ```bash
-VTT_FILE=VIDEO_ID.zh-Hans-en.vtt OUT_FILE=./YYYY-MM-DD.md TITLE="My Video" VIDEO_URL="https://..." node vtt2md.js
-rm vtt2md.js
+node bin/video-caption.js "VIDEO_URL"
 ```
 
-**Windows CMD:**
-
-```cmd
-set VTT_FILE=VIDEO_ID.zh-Hans-en.vtt
-set OUT_FILE=.\YYYY-MM-DD.md
-set TITLE=My Video
-set VIDEO_URL=https://www.youtube.com/watch?v=VIDEO_ID
-node vtt2md.js
-del vtt2md.js
-```
-
----
-
-### Step 4: Cleanup
-
-```bash
-rm VIDEO_ID*.vtt        # macOS / Linux
-```
-
-```cmd
-del VIDEO_ID*.vtt       :: Windows
-```
-
----
-
-## Prerequisites
-
-### yt-dlp
-
-```bash
-pip install yt-dlp
-pip install -U yt-dlp   # keep updated
-```
-
-### youtube_cookies.txt
-
-Required to bypass YouTube rate limits.
-
-1. Install Chrome extension: **Get cookies.txt LOCALLY**
-2. Open `youtube.com` while logged in
-3. Click extension → Export → Netscape format
-4. Save as `youtube_cookies.txt` in your working directory
-5. **Add to `.gitignore`** — never commit this file
-
----
-
-## Troubleshooting
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Sign in to confirm not a bot` | Missing or expired cookies | Re-export cookies |
-| `429 Too Many Requests` | Rate limited | `pip install -U yt-dlp` + use cookies |
-| `n challenge solving failed` | Needs JS runtime | Add `--js-runtimes node` flag |
-| `--list-subs` empty | No subtitles exist | Use Whisper fallback |
-| Garbled / encoding issues | Wrong encoding | Always use `utf8` in Node.js |
-| `node -e` fails on Windows | CMD quote parsing bug | Write `.js` file, run `node file.js` |
-
----
-
-## Fallback: Whisper (No Native Subtitles)
-
-> **Windows warning:** `faster-whisper` may crash with `0xC0000005` (ctranslate2 Segfault).
-> Always try native subtitles first.
-
-### Setup
-
-```bash
-python -m venv .venv
-source .venv/bin/activate    # macOS / Linux
-# .venv\Scripts\activate     # Windows
-pip install yt-dlp imageio-ffmpeg faster-whisper
-```
-
-### Download Audio
-
-```bash
-yt-dlp --extract-audio --audio-format mp3 \
-  --output "%(id)s.%(ext)s" \
-  --cookies youtube_cookies.txt \
-  "VIDEO_URL"
-```
-
-### Transcribe (save as `whisper_run.py`)
-
-```python
-from faster_whisper import WhisperModel
-
-model = WhisperModel("base", device="cpu", compute_type="int8")
-segments, info = model.transcribe("VIDEO_ID.mp3", beam_size=5, vad_filter=False)
-
-with open("transcript.txt", "w", encoding="utf-8") as f:
-    for seg in segments:
-        f.write(seg.text + "\n")
-```
-
-If Segfault (`0xC0000005`): `ctranslate2` is incompatible with this environment. Revert to native subtitles.
+Claude will run this command from the repo root.
 
 ---
 
@@ -216,11 +89,48 @@ If Segfault (`0xC0000005`): `ctranslate2` is incompatible with this environment.
 ```markdown
 # Video Title
 
-> Source: [Video Title](VIDEO_URL)
+| 字段 | 内容 |
+|------|------|
+| 频道 | Channel Name |
+| 发布日期 | 2024-01-15 |
+| 原始链接 | https://... |
+| 字幕来源 | 自动字幕（机器翻译） |
 
 ---
 
-subtitle line 1
-subtitle line 2
-...
+Merged paragraph one with full sentences here.
+
+Merged paragraph two continues here.
 ```
+
+**字幕来源** labels:
+- `原生字幕` — native human subtitles
+- `自动字幕（机器翻译）` — YouTube auto-generated
+- `Whisper 转写` — local AI transcription fallback
+
+---
+
+## Whisper Fallback
+
+Whisper runs automatically when `--list-subs` returns no results, or when `--whisper` flag is set.
+
+Requires:
+
+```bash
+pip install faster-whisper
+```
+
+> **Windows:** `faster-whisper` may crash with `0xC0000005` (ctranslate2 Segfault).
+> This is a known incompatibility. Prefer videos with native subtitles on Windows.
+
+---
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Sign in to confirm not a bot` | Missing/expired cookies | Re-export `youtube_cookies.txt` |
+| `429 Too Many Requests` | Rate limited | `pip install -U yt-dlp` + use cookies |
+| `n challenge solving failed` | Needs JS runtime | Run `yt-dlp --update` |
+| No VTT file downloaded | No subtitles for chosen lang | Try `--lang en` or `--whisper` |
+| `0xC0000005` Segfault | Windows + ctranslate2 | Use a video with native subtitles |

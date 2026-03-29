@@ -1,0 +1,18 @@
+{
+  "name": "video-caption",
+  "version": "1.0.0",
+  "description": "Extract subtitles from YouTube videos and convert to Markdown notes",
+  "bin": {
+    "video-caption": "./bin/video-caption.js"
+  },
+  "main": "./lib/convert.js",
+  "scripts": {
+    "test": "node bin/video-caption.js --help"
+  },
+  "keywords": ["youtube", "subtitle", "caption", "vtt", "markdown", "yt-dlp", "cli"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {}
+}
