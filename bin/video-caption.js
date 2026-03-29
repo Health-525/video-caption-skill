@@ -106,7 +106,9 @@ async function main() {
     const chosen = langs.find(l => subs.includes(l));
 
     if (chosen) {
-      source = subs.some(s => s.startsWith(chosen) && !s.includes('-')) ? 'native' : 'auto';
+      // A lang code with 3+ segments (e.g. zh-Hans-en) is auto-translated;
+      // 1-2 segments (e.g. zh-Hans, en) is native.
+      source = chosen.split('-').length >= 3 ? 'auto' : 'native';
       console.log(`      Found: ${chosen} (${source})`);
 
       // ── Step 3: download subtitle ──
