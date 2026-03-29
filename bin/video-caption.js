@@ -103,11 +103,14 @@ async function main() {
     console.log('[2/4] Checking available subtitles...');
     const subs = await listSubs(opts.url, cookiesArg);
     const langs = opts.lang.split(',');
-    const chosen = langs.find(l => subs.includes(l));
+    // Prefer native subtitles: pick the first lang whose code has < 3 segments,
+    // fall back to the first available auto-translated lang.
+    // e.g. "zh-Hans" (2 segs) = native; "zh-Hans-en" (3 segs) = auto-translated.
+    const chosen =
+      langs.find(l => subs.includes(l) && l.split('-').length < 3) ||
+      langs.find(l => subs.includes(l));
 
     if (chosen) {
-      // A lang code with 3+ segments (e.g. zh-Hans-en) is auto-translated;
-      // 1-2 segments (e.g. zh-Hans, en) is native.
       source = chosen.split('-').length >= 3 ? 'auto' : 'native';
       console.log(`      Found: ${chosen} (${source})`);
 
