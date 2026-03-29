@@ -18,6 +18,7 @@ function parseArgs(argv) {
     whisper:         false,
     keepTimestamps:  false,
     mergeWindow:     4,   // seconds
+    python:          null,
     help:            false,
   };
 
@@ -30,6 +31,7 @@ function parseArgs(argv) {
     else if (a === '--out'     && args[i+1])     { opts.out  = args[++i]; }
     else if (a === '--cookies' && args[i+1])     { opts.cookies = args[++i]; }
     else if (a === '--merge-window' && args[i+1]){ opts.mergeWindow = parseFloat(args[++i]); }
+    else if (a === '--python'  && args[i+1])     { opts.python = args[++i]; }
     else if (!a.startsWith('-'))                 { opts.url = a; }
   }
   return opts;
@@ -46,6 +48,7 @@ Options:
   --merge-window <secs>  Merge subtitle lines within N seconds (default: 4)
   --keep-timestamps      Include timestamps in output
   --whisper              Force Whisper transcription even if subtitles exist
+  --python <path>        Python interpreter for Whisper (default: auto-detect)
   -h, --help             Show this help
 
 Examples:
@@ -128,7 +131,7 @@ async function main() {
     console.log('[3/4] Downloading audio for Whisper transcription...');
     const audioFile = await download.getAudio(opts.url, cookiesArg);
     console.log('[3/4] Transcribing with Whisper (this may take a while)...');
-    transcript = await transcribe(audioFile);
+    transcript = await transcribe(audioFile, { python: opts.python });
     // cleanup audio
     fs.unlinkSync(audioFile);
   }
