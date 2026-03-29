@@ -17,7 +17,9 @@ function parseArgs(argv) {
     cookies:         'youtube_cookies.txt',
     whisper:         false,
     keepTimestamps:  false,
-    mergeWindow:     4,   // seconds
+    mergeWindow:     4,     // seconds
+    splitPunct:      true,  // break paragraph at sentence-end punctuation
+    paraMaxChars:    240,   // fallback: force new paragraph after N chars
     python:          null,
     help:            false,
   };
@@ -30,8 +32,10 @@ function parseArgs(argv) {
     else if (a === '--lang'    && args[i+1])     { opts.lang = args[++i]; }
     else if (a === '--out'     && args[i+1])     { opts.out  = args[++i]; }
     else if (a === '--cookies' && args[i+1])     { opts.cookies = args[++i]; }
-    else if (a === '--merge-window' && args[i+1]){ opts.mergeWindow = parseFloat(args[++i]); }
-    else if (a === '--python'  && args[i+1])     { opts.python = args[++i]; }
+    else if (a === '--merge-window'   && args[i+1]) { opts.mergeWindow  = parseFloat(args[++i]); }
+    else if (a === '--para-max-chars'  && args[i+1]) { opts.paraMaxChars = parseInt(args[++i], 10); }
+    else if (a === '--no-para-split-punct')           { opts.splitPunct   = false; }
+    else if (a === '--python'          && args[i+1]) { opts.python       = args[++i]; }
     else if (!a.startsWith('-'))                 { opts.url = a; }
   }
   return opts;
@@ -46,6 +50,8 @@ Options:
   --lang <langs>         Subtitle language priority (default: zh-Hans,zh-Hans-en,en)
   --cookies <file>       Cookies file path (default: youtube_cookies.txt)
   --merge-window <secs>  Merge subtitle lines within N seconds (default: 4)
+  --para-max-chars <n>   Max chars per paragraph before forced break (default: 240)
+  --no-para-split-punct  Disable paragraph split at sentence-end punctuation
   --keep-timestamps      Include timestamps in output
   --whisper              Force Whisper transcription even if subtitles exist
   --python <path>        Python interpreter for Whisper (default: auto-detect)
@@ -139,8 +145,8 @@ async function main() {
   // ── Step 4: convert to markdown ──
   console.log('[4/4] Converting to Markdown...');
   const md = vttFile
-    ? vttToMd(vttFile, meta, { source, keepTimestamps: opts.keepTimestamps, mergeWindow: opts.mergeWindow })
-    : transcriptToMd(transcript, meta, { source });
+    ? vttToMd(vttFile, meta, { source, keepTimestamps: opts.keepTimestamps, mergeWindow: opts.mergeWindow, splitPunct: opts.splitPunct, paraMaxChars: opts.paraMaxChars })
+    : transcriptToMd(transcript, meta, { source, splitPunct: opts.splitPunct, paraMaxChars: opts.paraMaxChars });
 
   // cleanup vtt
   if (vttFile && fs.existsSync(vttFile)) fs.unlinkSync(vttFile);
@@ -152,9 +158,9 @@ async function main() {
   console.log(`\n[done] ${outPath}`);
 }
 
-function transcriptToMd(transcript, meta, { source }) {
+function transcriptToMd(transcript, meta, { source, splitPunct, paraMaxChars }) {
   const header = buildHeader(meta, source);
-  const paras  = splitTranscript(transcript);
+  const paras  = splitTranscript(transcript, { splitPunct: opts.splitPunct, paraMaxChars: opts.paraMaxChars });
   return header + paras.join('\n\n') + '\n';
 }
 
