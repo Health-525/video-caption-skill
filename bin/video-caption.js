@@ -4,7 +4,7 @@
 const path = require('path');
 const fs   = require('fs');
 const { download, listSubs } = require('../lib/download');
-const { vttToMd }            = require('../lib/convert');
+const { vttToMd, splitTranscript } = require('../lib/convert');
 const { transcribe }         = require('../lib/whisper');
 
 // ─── CLI arg parser (no external deps) ──────────────────────────────────────
@@ -154,17 +154,21 @@ async function main() {
 
 function transcriptToMd(transcript, meta, { source }) {
   const header = buildHeader(meta, source);
-  return header + transcript;
+  const paras  = splitTranscript(transcript);
+  return header + paras.join('\n\n') + '\n';
 }
 
 function buildHeader(meta, source) {
-  const sourceLabel = { native: '原生字幕', auto: '自动字幕', whisper: 'Whisper 转写' }[source] || source;
+  const sourceLabel = { native: '原生字幕', auto: '自动字幕（机器翻译）', whisper: 'Whisper 转写' }[source] || source;
   return [
     `# ${meta.title || 'Untitled'}`,
     '',
-    `> **来源：** [${meta.channel || ''}](${meta.url})`,
-    `> **发布日期：** ${meta.uploadDate || ''}`,
-    `> **字幕来源：** ${sourceLabel}`,
+    `| 字段 | 内容 |`,
+    `|------|------|`,
+    `| 频道 | ${meta.channel || '-'} |`,
+    `| 发布日期 | ${meta.uploadDate || '-'} |`,
+    `| 原始链接 | [${meta.url}](${meta.url}) |`,
+    `| 字幕来源 | ${sourceLabel} |`,
     '',
     '---',
     '',
