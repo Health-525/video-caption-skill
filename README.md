@@ -35,9 +35,12 @@ Supports native subtitles, auto-generated subtitles, and Whisper transcription f
 - **CJK-aware text joining** — no extra spaces inserted between Chinese/Japanese/Korean characters
 - **Subtitle source labeling** — output header shows whether content came from native subs, auto-subs, or Whisper
 - **n challenge auto-retry** — on first failure, automatically retries with EJS/Deno bypass args
+- **No-cookie safe retry** — on HTTP 429 without cookies, retries with lighter YouTube clients and fewer extractor requests
 - **Whisper fallback** — downloads audio and transcribes locally when no subtitles are available
 - **Cross-platform** — works on Windows CMD, macOS, Linux; no `del`/`rm` hardcoded
 - **Zero npm dependencies** — uses only Node.js built-ins
+- **Agent-friendly** — supports `--stdout` for piping Markdown into agent workflows
+- **Environment doctor** — supports `--doctor` to check local dependency readiness
 
 ---
 
@@ -47,6 +50,7 @@ Supports native subtitles, auto-generated subtitles, and Whisper transcription f
 |-----------|---------|--------------|
 | Node.js >= 16 | [nodejs.org](https://nodejs.org) | Running the CLI |
 | `yt-dlp` | `pip install yt-dlp` | Downloading subtitles / audio |
+| `ffmpeg` + `ffprobe` | Install FFmpeg binaries and add to PATH | Audio extraction for Whisper fallback |
 | `youtube_cookies.txt` | Export from browser | Bypassing YouTube rate limits |
 | Python 3 + `faster-whisper` | `pip install faster-whisper` | Whisper fallback only |
 
@@ -70,7 +74,13 @@ npm install -g .
 video-caption <youtube_url> [options]
 ```
 
-### Option C: OpenClaw skill (Claude agent)
+### Option C: Use as a library
+
+```js
+const { normalizeInput, convert } = require('video-caption');
+```
+
+### Option D: OpenClaw skill (Claude agent)
 
 See [OpenClaw Skill](#openclaw-skill) section below.
 
@@ -82,11 +92,17 @@ See [OpenClaw Skill](#openclaw-skill) section below.
 # Basic usage — output goes to notes/YYYY-MM-DD-VIDEO_ID.md
 video-caption https://www.youtube.com/watch?v=VIDEO_ID
 
+# Agent-friendly usage — print Markdown directly to stdout
+video-caption https://www.youtube.com/watch?v=VIDEO_ID --stdout
+
 # With cookies (recommended)
 video-caption https://youtu.be/VIDEO_ID --cookies youtube_cookies.txt
 
 # Force Whisper (no subtitles available)
 video-caption https://youtu.be/VIDEO_ID --whisper --cookies youtube_cookies.txt
+
+# Preflight environment check
+video-caption --doctor
 
 # Custom output path
 video-caption https://youtu.be/VIDEO_ID --out "./2024/%(id)s.md"
@@ -114,6 +130,7 @@ Output options:
   --out <template>         Output file path template
                            Default: notes/%Y-%m-%d-%(id)s.md
                            Tokens: %Y-%m-%d (date), %(id)s (video ID), %(title)s (title)
+  --stdout                 Print Markdown to stdout instead of writing a file
   --keep-timestamps        Prefix each paragraph with [MM:SS] timestamp
 
 Paragraph options:
@@ -130,8 +147,15 @@ Whisper options:
                            Example: --python /home/user/.venv/bin/python3
 
 General:
+  --doctor                 Check local environment and dependency availability
   -h, --help               Show this help message
 ```
+
+Accepted input forms:
+- Full YouTube watch URL
+- YouTube Shorts URL
+- YouTube embed URL
+- Raw 11-character video ID
 
 ---
 
@@ -262,11 +286,55 @@ Fix options (try in order):
 
 ---
 
+## No-Cookies Strategy
+
+If `youtube_cookies.txt` is missing, the tool automatically switches to a lower-request retry strategy when YouTube returns HTTP 429:
+
+- uses lighter `player_client` values such as `tv` and `mweb`
+- skips some webpage/config/js extraction steps
+- retries with EJS bypass if anti-bot JS is detected later
+
+This improves real-world success rate, but fresh cookies are still the most reliable option.
+
+---
+
+## Agent Usage
+
+For agent or automation usage, the recommended command is:
+
+```bash
+video-caption "https://www.youtube.com/watch?v=VIDEO_ID" --stdout --cookies youtube_cookies.txt
+```
+
+This prints the final Markdown note to stdout so another tool or agent can:
+
+- save it to Obsidian or GitHub
+- summarize it further
+- convert it into tasks or notes
+- chain it into a larger workflow
+
+If you want file output, omit `--stdout`.
+
+---
+
+## Testing
+
+Run the unit test suite:
+
+```bash
+npm test
+```
+
+The repository also includes a GitHub Actions CI workflow for Node.js on Windows and Linux.
+
+---
+
 ## Whisper Fallback
 
 Whisper runs when:
 - `--list-subs` returns no results for the requested languages, **or**
-- `--whisper` flag is explicitly passed
+- `--whisper` flag is explicitly passed, **or**
+- subtitle download fails after retries (for example due to HTTP 429 / rate limit)
 
 ### Setup
 
@@ -353,6 +421,21 @@ Then reference the path in your OpenClaw config.
 ---
 
 ## Troubleshooting
+
+### Quick diagnostics
+
+Run:
+
+```bash
+video-caption --doctor
+```
+
+This checks:
+
+- `yt-dlp`
+- Python
+- `faster-whisper`
+- `youtube_cookies.txt`
 
 | Error | Cause | Fix |
 |-------|-------|-----|

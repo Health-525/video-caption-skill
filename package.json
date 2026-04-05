@@ -5,9 +5,24 @@
   "bin": {
     "video-caption": "./bin/video-caption.js"
   },
-  "main": "./lib/convert.js",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./convert": "./lib/convert.js",
+    "./download": "./lib/download.js",
+    "./whisper": "./lib/whisper.js",
+    "./input": "./lib/input.js",
+    "./doctor": "./lib/doctor.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "node bin/video-caption.js --help"
+    "test": "node tests/run-tests.js",
+    "doctor": "node bin/video-caption.js --doctor"
   },
   "keywords": ["youtube", "subtitle", "caption", "vtt", "markdown", "yt-dlp", "cli"],
   "license": "MIT",

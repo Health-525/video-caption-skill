@@ -6,3 +6,5 @@ youtube_cookies.txt
 *.mp4
 *.webm
 .env
+.npm-cache/
+notes/

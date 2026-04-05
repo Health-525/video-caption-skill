@@ -6,6 +6,8 @@ const fs   = require('fs');
 const { download, listSubs } = require('../lib/download');
 const { vttToMd, splitTranscript } = require('../lib/convert');
 const { transcribe }         = require('../lib/whisper');
+const { normalizeInput }     = require('../lib/input');
+const { runDoctor }          = require('../lib/doctor');
 
 // ─── CLI arg parser (no external deps) ──────────────────────────────────────
 function parseArgs(argv) {
@@ -14,8 +16,10 @@ function parseArgs(argv) {
     url:             null,
     lang:            'zh-Hans,zh-Hans-en,en',
     out:             'notes/%Y-%m-%d-%(id)s.md',
-    cookies:         'youtube_cookies.txt',
+    cookies:         process.env.VIDEO_CAPTION_COOKIES || 'youtube_cookies.txt',
     whisper:         false,
+    stdout:          false,
+    doctor:          false,
     keepTimestamps:  false,
     mergeWindow:     4,     // seconds
     splitPunct:      true,  // break paragraph at sentence-end punctuation
@@ -27,7 +31,9 @@ function parseArgs(argv) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--help' || a === '-h')            { opts.help = true; }
+    else if (a === '--doctor')                   { opts.doctor = true; }
     else if (a === '--whisper')                  { opts.whisper = true; }
+    else if (a === '--stdout')                   { opts.stdout = true; }
     else if (a === '--keep-timestamps')          { opts.keepTimestamps = true; }
     else if (a === '--lang'    && args[i+1])     { opts.lang = args[++i]; }
     else if (a === '--out'     && args[i+1])     { opts.out  = args[++i]; }
@@ -49,6 +55,8 @@ Options:
   --out <template>       Output path template (default: notes/%Y-%m-%d-%(id)s.md)
   --lang <langs>         Subtitle language priority (default: zh-Hans,zh-Hans-en,en)
   --cookies <file>       Cookies file path (default: youtube_cookies.txt)
+  --stdout               Print Markdown to stdout instead of writing a file
+  --doctor               Check local environment and dependencies
   --merge-window <secs>  Merge subtitle lines within N seconds (default: 4)
   --para-max-chars <n>   Max chars per paragraph before forced break (default: 240)
   --no-para-split-punct  Disable paragraph split at sentence-end punctuation
@@ -62,6 +70,41 @@ Examples:
   video-caption https://youtu.be/VIDEO_ID --out ./my-notes/%(id)s.md --lang en
   video-caption https://youtu.be/VIDEO_ID --whisper
 `);
+}
+
+function validateOpts(opts) {
+  if (!opts.url && !opts.help && !opts.doctor) {
+    throw new Error('missing youtube url or video id');
+  }
+  if (!Number.isFinite(opts.mergeWindow) || opts.mergeWindow < 0) {
+    throw new Error('--merge-window must be a number >= 0');
+  }
+  if (!Number.isInteger(opts.paraMaxChars) || opts.paraMaxChars <= 0) {
+    throw new Error('--para-max-chars must be a positive integer');
+  }
+}
+
+function cleanupTempArtifact(filePath) {
+  if (!filePath) return;
+  try {
+    const dir = path.dirname(filePath);
+    if (fs.existsSync(dir)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {}
+}
+
+function shouldFallbackToWhisper(error) {
+  const message = String(error && error.message || '').toLowerCase();
+  return (
+    message.includes('429') ||
+    message.includes('rate-limited') ||
+    message.includes('too many requests') ||
+    message.includes('page needs to be reloaded') ||
+    message.includes('no vtt file downloaded') ||
+    message.includes('requested format is not available') ||
+    message.includes('only images are available')
+  );
 }
 
 // ─── Output path resolver ────────────────────────────────────────────────────
@@ -78,11 +121,19 @@ function resolveOutPath(template, meta) {
 // ─── Main ────────────────────────────────────────────────────────────────────
 async function main() {
   const opts = parseArgs(process.argv);
+  validateOpts(opts);
+
+  if (opts.doctor) {
+    const exitCode = await runDoctor({ cookiesPath: opts.cookies, python: opts.python });
+    process.exit(exitCode);
+  }
 
   if (opts.help || !opts.url) {
     printHelp();
     process.exit(opts.help ? 0 : 1);
   }
+
+  opts.url = normalizeInput(opts.url);
 
   // Cookies: check existence, never print content
   const cookiesArg = fs.existsSync(opts.cookies) ? opts.cookies : null;
@@ -125,7 +176,16 @@ async function main() {
 
       // ── Step 3: download subtitle ──
       console.log('[3/4] Downloading subtitle...');
-      vttFile = await download.getSub(opts.url, chosen, cookiesArg);
+      try {
+        vttFile = await download.getSub(opts.url, chosen, cookiesArg);
+      } catch (error) {
+        if (shouldFallbackToWhisper(error)) {
+          console.warn(`      [fallback] subtitle download failed: ${error.message}`);
+          console.warn('      [fallback] switching to Whisper transcription...');
+        } else {
+          throw error;
+        }
+      }
     } else {
       console.log('      No subtitles found, falling back to Whisper...');
     }
@@ -136,10 +196,12 @@ async function main() {
     source = 'whisper';
     console.log('[3/4] Downloading audio for Whisper transcription...');
     const audioFile = await download.getAudio(opts.url, cookiesArg);
-    console.log('[3/4] Transcribing with Whisper (this may take a while)...');
-    transcript = await transcribe(audioFile, { python: opts.python });
-    // cleanup audio
-    fs.unlinkSync(audioFile);
+    try {
+      console.log('[3/4] Transcribing with Whisper (this may take a while)...');
+      transcript = await transcribe(audioFile, { python: opts.python });
+    } finally {
+      cleanupTempArtifact(audioFile);
+    }
   }
 
   // ── Step 4: convert to markdown ──
@@ -149,7 +211,12 @@ async function main() {
     : transcriptToMd(transcript, meta, { source, splitPunct: opts.splitPunct, paraMaxChars: opts.paraMaxChars });
 
   // cleanup vtt
-  if (vttFile && fs.existsSync(vttFile)) fs.unlinkSync(vttFile);
+  cleanupTempArtifact(vttFile);
+
+  if (opts.stdout) {
+    process.stdout.write(md);
+    return;
+  }
 
   // ── Write output ──
   const outPath = resolveOutPath(opts.out, meta);
@@ -160,7 +227,7 @@ async function main() {
 
 function transcriptToMd(transcript, meta, { source, splitPunct, paraMaxChars }) {
   const header = buildHeader(meta, source);
-  const paras  = splitTranscript(transcript, { splitPunct: opts.splitPunct, paraMaxChars: opts.paraMaxChars });
+  const paras  = splitTranscript(transcript, { splitPunct, paraMaxChars });
   return header + paras.join('\n\n') + '\n';
 }
 

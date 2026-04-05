@@ -8,6 +8,8 @@ metadata:
       bins:
         - yt-dlp
         - node
+      install:
+        - npm install -g /path/to/video-caption-skill
 ---
 
 # Video Caption Skill
@@ -34,6 +36,14 @@ Or install globally:
 npm install -g /path/to/video-caption-skill
 ```
 
+### Quick self-check
+
+```bash
+video-caption --doctor
+```
+
+Recommended before first use on a new machine.
+
 ### youtube_cookies.txt (required for rate-limit bypass)
 
 1. Install Chrome extension: **Get cookies.txt LOCALLY**
@@ -53,6 +63,14 @@ node bin/video-caption.js <youtube_url>
 
 Output: `notes/YYYY-MM-DD-VIDEO_ID.md`
 
+### Agent mode (recommended)
+
+```bash
+video-caption "<youtube_url_or_video_id>" --stdout --cookies youtube_cookies.txt
+```
+
+Use this when another agent or workflow should consume the generated Markdown directly.
+
 ### With options
 
 ```bash
@@ -71,8 +89,16 @@ node bin/video-caption.js <youtube_url> \
 | `--lang <langs>` | `zh-Hans,zh-Hans-en,en` | Subtitle language priority (comma-separated) |
 | `--cookies <file>` | `youtube_cookies.txt` | Cookies file path |
 | `--merge-window <s>` | `4` | Merge subtitle lines within N seconds into one segment |
+| `--stdout` | off | Print Markdown to stdout for agent chaining |
+| `--doctor` | off | Check environment readiness |
 | `--keep-timestamps` | off | Prefix each paragraph with `[MM:SS]` |
 | `--whisper` | off | Force Whisper even if subtitles exist |
+
+Accepted inputs:
+- Full YouTube URL
+- Shorts URL
+- Embed URL
+- Raw 11-character video ID
 
 ### If running via Claude (no global install)
 
@@ -112,7 +138,7 @@ Merged paragraph two continues here.
 
 ## Whisper Fallback
 
-Whisper runs automatically when `--list-subs` returns no results, or when `--whisper` flag is set.
+Whisper runs automatically when `--list-subs` returns no results, when `--whisper` flag is set, or when subtitle download fails after retries (for example due to HTTP 429).
 
 Requires:
 
@@ -120,12 +146,27 @@ Requires:
 pip install faster-whisper
 ```
 
+For Whisper fallback to work end-to-end, you also need:
+
+```bash
+ffmpeg
+ffprobe
+```
+
+Both binaries must be available in `PATH`.
+
 > **Windows:** `faster-whisper` may crash with `0xC0000005` (ctranslate2 Segfault).
 > This is a known incompatibility. Prefer videos with native subtitles on Windows.
 
 ---
 
 ## Troubleshooting
+
+Start here:
+
+```bash
+video-caption --doctor
+```
 
 | Error | Cause | Fix |
 |-------|-------|-----|
